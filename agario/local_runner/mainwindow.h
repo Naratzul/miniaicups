@@ -28,27 +28,36 @@ private:
 
     int timerId;
     bool is_paused;
+    bool batch_mode;
+    QString file_name;
+    QString seed;
 
     QMap<int, bool> player_vision;
+    QMap<int, QString> crashed_players;
+
 public:
-    explicit MainWindow(QWidget *parent = 0) :
+    explicit MainWindow(bool batch_mode, const QString& file_name, QWidget *parent = 0) :
         QMainWindow(parent),
         ui(new Ui::MainWindow),
         mechanic(new Mechanic),
         sm(new StrategyModal),
         mbox(new QMessageBox),
         timerId(-1),
-        is_paused(false)
+        is_paused(false),
+        batch_mode(batch_mode),
+        file_name(file_name)
     {
         ui->setupUi(this);
         this->setMouseTracking(true);
         this->setFixedSize(this->geometry().width(), this->geometry().height());
 
         if (Constants::instance().SEED.empty()) {
-            ui->txt_seed->setText(QString::fromStdString(Constants::generate_seed()));
+            seed = QString::fromStdString(Constants::generate_seed());
         } else {
-            ui->txt_seed->setText(QString::fromStdString(Constants::instance().SEED));
+            seed = QString::fromStdString(Constants::instance().SEED);
         }
+
+        ui->txt_seed->setText(seed);
 
         ui->tableWidget->setSelectionMode(QAbstractItemView::NoSelection);
         ui->tableWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -72,6 +81,10 @@ public:
         connect(ui->btn_strategies_settings, &QPushButton::clicked, sm, &QDialog::show);
 
         ui->btn_newSeed->setVisible(false);
+
+        if (batch_mode) {
+            init_game();
+        }
     }
 
     ~MainWindow() {
@@ -103,7 +116,7 @@ public slots:
             Strategy *strategy = sm->get_strategy(pId);
             Custom *custom = dynamic_cast<Custom*>(strategy);
             if (custom != NULL) {
-                connect(custom, SIGNAL(error(QString)), this, SLOT(on_error(QString)));
+                connect(custom, SIGNAL(error(int, QString)), this, SLOT(on_error(int, QString)));
             }
 
             int row = ui->tableWidget->rowCount();
@@ -143,7 +156,13 @@ public slots:
         this->update();
     }
 
-    void on_error(QString msg) {
+    void on_error(int player_id, QString msg) {
+        crashed_players.insert(player_id, msg);
+
+        if (batch_mode) {
+            return;
+        }
+
         is_paused = true;
 
         mbox->setStandardButtons(QMessageBox::Close);
@@ -197,16 +216,63 @@ public slots:
         is_paused = false;
         timerId = -1;
 
-        double max_score = 0;
-        double maxId = -1;
+        int max_score = -1;
+        int maxId = -1;
 
-        if (maxId != -1) {
+        QMap<int, int> scores = mechanic->get_scores();
+
+        for (const auto& id: scores.keys()) {
+            int score = scores.value(id);
+
+            if (score > max_score) {
+                max_score = score;
+                maxId = id;
+            }
+        }
+
+        if (!batch_mode && maxId != -1) {
             QString text = "Победителем стал ID=" + QString::number(maxId) + " со счетом " + QString::number(max_score);
 
             mbox->setStandardButtons(QMessageBox::Close);
             mbox->setText(text);
             mbox->exec();
         }
+
+        if (batch_mode) {
+            auto ids = scores.keys();
+            std::sort(ids.begin(), ids.end());
+
+            QJsonArray players;
+            for (int id: ids) {
+                QJsonObject obj;
+                if (crashed_players.contains(id)) {
+                    obj.insert("crashed", true);
+                    obj.insert("comment", crashed_players.value(id));
+                } else {
+                    obj.insert("crashed", false);
+                }
+                players.append(obj);
+            }
+
+            QJsonArray results;
+
+            for (int id: ids) {
+                int score = scores.value(id);
+                results.append(score);
+            }
+
+            QJsonObject json;
+            json.insert("seed", seed);
+            json.insert("players", players);
+            json.insert("results", results);
+
+            QFile save_file("../utils/results/" + file_name);
+            save_file.open(QIODevice::WriteOnly);
+            save_file.write(QJsonDocument(json).toJson());
+            save_file.close();
+        }
+
+        QApplication::quit();
     }
 
 public:

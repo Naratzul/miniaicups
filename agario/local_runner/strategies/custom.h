@@ -17,7 +17,7 @@ protected:
     QMetaObject::Connection finish_connection;
 
 signals:
-    void error(QString);
+    void error(int, QString);
 
 public:
     explicit Custom(int _id, const QString &_path) :
@@ -57,7 +57,7 @@ public:
         qDebug() << message;
         int sent = solution->write(message.toStdString().c_str());
         if (sent == -1) {
-            emit error("Can't write to process");
+            emit error(id, "Can't write to process");
             return Direct(0, 0);
         }
         Constants &ins = Constants::instance();
@@ -69,7 +69,7 @@ public:
                 cmdBytes.append(solution->readAllStandardError());
                 cmdBytes.append(solution->readAll());
                 qDebug() << cmdBytes;
-                emit error("Can't wait for process answer (limit expired)");
+                emit error(id, "Can't wait for process answer (limit expired)");
                 return Direct(0, 0);
             }
             cmdBytes.append(solution->readLine());
@@ -78,7 +78,7 @@ public:
         QJsonObject json = parse_answer(cmdBytes);
         QStringList keys = json.keys();
         if (! keys.contains("X") || ! keys.contains("Y")) {
-            emit error("No X or Y keys in answer json");
+            emit error(id, "No X or Y keys in answer json");
             return Direct(0, 0);
         }
 
@@ -97,12 +97,12 @@ public:
 public slots:
     void on_finished(int code) {
         is_running = false;
-        emit error("Process finished with code " + QString::number(code));
+        emit error(id, "Process finished with code " + QString::number(code));
     }
 
     void on_error() {
         QByteArray err_data =  solution->readAllStandardError();
-        emit error(QString(err_data));
+        emit error(id, QString(err_data));
     }
 
 public:
@@ -113,7 +113,7 @@ public:
         qDebug() << message;
         int sent = solution->write(message.toStdString().c_str());
         if (sent == 0) {
-            emit error("Can't write config to process");
+            emit error(id, "Can't write config to process");
         }
     }
 
