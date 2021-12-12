@@ -26,9 +26,7 @@ def create_folder(folder):
 def create_results_folder():
     create_folder("results")
 
-def run_game(args):
-    idx = args
-
+def run_batch_game(idx):
     result_path = "result{idx}.txt".format(idx = idx)
     lr_command = "../build-local_runner-Desktop-Release/local_runner --save-results={result_path} --batch-mode".format(result_path = result_path)
 
@@ -37,6 +35,19 @@ def run_game(args):
             local_runner.wait()
     except Exception as e:
         print(e.traceback())
+
+def run_game(seed):
+    os.environ['SEED'] = seed
+
+    lr_command = "../build-local_runner-Desktop-Release/local_runner"
+
+    try:
+        with subprocess.Popen(lr_command.split(' '), stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL) as local_runner:
+            local_runner.wait()
+    except Exception as e:
+        print(e.traceback())
+
+    del os.environ['SEED']
 
 def process_result(game_count):
     player_count = 4;
@@ -91,7 +102,7 @@ def init(count, nthreads):
     create_results_folder()
 
     pool = multiprocessing.Pool(processes = nthreads, initializer = start_process)
-    for _ in tqdm.tqdm(pool.imap_unordered(run_game, [(idx) for idx in range(count)]), total = count):
+    for _ in tqdm.tqdm(pool.imap_unordered(run_batch_game, [(idx) for idx in range(count)]), total = count):
         pass
 
     process_result(count)
@@ -106,6 +117,11 @@ def main():
 @click.option('--nthreads', type = int, default = 4)
 def run(count, nthreads):
     init(count, nthreads)
+
+@main.command()
+@click.option('--seed')
+def run_one(seed):
+    run_game(seed)
 
 if __name__ == "__main__":
     main()
